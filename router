@@ -40,6 +40,17 @@ PROV = "prov"
 
 
 ##########################################################################################
+def checkIPinNet(ip, network, netmask):
+    print(ip + " " + network + " " + netmask)
+    ipArray = [int(x) for x in ip.split(".")]
+    netArray = [int(x) for x in network.split(".")]
+    maskArray = [int(x) for x in netmask.split(".")]
+    for x in range(0,4):
+        c1 = ipArray[x] & maskArray[x]
+        c2 = netArray[x] & maskArray[x]
+        if(c1 != c2):
+            return False
+    return True
 
 class Router:
 
@@ -49,7 +60,9 @@ class Router:
     sockets = None
 
     def __init__(self, networks):
+        #{ip:[{msg:}...] ....}
         self.routes = {}
+        #{ip:[{msg:}...] ....}
         self.updates = {}
         self.relations = {}
         self.sockets = {}
@@ -62,11 +75,19 @@ class Router:
             self.sockets[network].connect(network)
             self.relations[network] = relation
         return
-
+    
     def lookup_routes(self, daddr):
         """ Lookup all valid routes for an address """
         # TODO
         outroutes = []
+        
+        for k in self.routes.keys():
+            for msg in self.routes[k]:
+                net=msg["network"]
+                mask=msg["netmask"]
+                if checkIPinNet(daddr, net, mask):
+                    outroutes.append(net)
+                    
         return outroutes
 
     def get_shortest_as_path(self, routes):
@@ -102,7 +123,7 @@ class Router:
         """	Select the best route for a given address	"""
         # TODO
         peer = None
-        routes = lookup_routers(daddr)
+        routes = self.lookup_routes(daddr)
         # Rules go here
         if routes:
             # 1. Highest Preference
@@ -121,34 +142,99 @@ class Router:
 
     def forward(self, srcif, packet):
         """	Forward a data packet	"""
-        # TODO
-        return False
+        #TODO: really dangerous, please check if route=[] later
+        route = self.get_route(srcif, packet["dst"])[0]
+        print(route)
+        sock=self.sockets[route]
+        try:
+            sock.sendall(json.dump(packet))
+        except:
+            print("forward failed")
+        
+        return
 
     def coalesce(self):
         """	coalesce any routes that are right next to each other	"""
         # TODO (this is the most difficult task, save until last)
         return False
-
     def update(self, srcif, packet):
-        """	handle update packets	"""
-        # TODO 
-        return False
-    
+        #add entry to routes
+        msg= packet["msg"]
+        if(srcif in self.updates.keys()):
+            self.routes[srcif].append([msg])
+        else:
+            self.updates[srcif] = [msg]
+        #check if src is already in routes
+        if(srcif in self.routes.keys()):
+            self.routes[srcif].append([msg])
+        else:
+            self.routes[srcif] = [msg]
+        
+        #send packets to neighbours
+        for ip in self.sockets:
+            if ip != srcif:
+                sock = self.sockets[ip]
+                send=packet.copy()
+                send["src"]=send["dst"]
+                send["dst"]=ip
+                try:
+                    sock.sendall(json.dumps(send))
+                except:
+                    print("send error")
+                finally:
+                    del send
+        return;
+
+ 
     def revoke(self, packet):
         """	handle revoke packets	"""
         # TODO
         return True
 
+
     def dump(self, packet):
-        """	handles dump table requests	"""
-        # TODO
-        return True
+        tableContent = {
+                "src": packet["dst"],
+                "dst": packet["src"],
+                "type": "table",
+                "msg": []
+        }
+        
+        #include router message inside of table message
+        for ip in self.routes:
+            for item in self.routes[ip]:
+                 tableContent["msg"].append({"network": item["network"],
+                                             "netmask": item["netmask"],
+                                             "peer": ip})
+        try:
+            print(json.dumps(tableContent))
+            self.sockets[packet["src"]].sendall(json.dumps(tableContent))
+        except:
+            print("Forwarding message fail")
+        return 
+
+
 
     def handle_packet(self, srcif, packet):
-        """	dispatches a packet """
-        # TODO
-        return False
-
+        typ=packet["type"]
+        if typ=="update":
+            self.update(srcif, packet)
+            return;
+        if typ=="dump":
+            self.dump(packet)
+            return;
+        if typ=="no route":
+            #TODO
+            return
+        if typ=="revoke":
+            self.revoke(packet)
+            return
+        if typ=="data":
+            self.forward(srcif, packet);
+            return
+        else:
+            exit(1)
+    
     def send_error(self, conn, msg):
         """ Send a no_route error message """
         # TODO
