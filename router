@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import argparse, socket, time, json, select, struct, math
+import argparse, socket, time, json, select, struct, math,copy
 
 #DEBUG = True
 DEBUG = False
@@ -85,37 +85,117 @@ class Router:
                 net=msg["network"]
                 mask=msg["netmask"]
                 if checkIPinNet(daddr, net, mask):
-                    outroutes.append(k)
-        return list(set(outroutes))
-
+                    temp=copy.deepcopy(msg)
+                    temp["addr"]=k
+                    outroutes.append(temp)
+        #            print(temp['origin'])
+        #print(daddr)
+        #print(outroutes)
+        return outroutes
+    
     def get_shortest_as_path(self, routes):
         """ select the route with the shortest AS Path """
         # TODO
+        shortest=100
+        idx=[]
+        for i in range(len(routes)):
+            target=routes[i]
+            if len(target["ASPath"]) < shortest:
+                shortest=len(target["ASPath"])
+                idx=[i]
+            elif len(target["ASPath"]) == shortest:
+                idx.append(i)
+            else:
+                continue
         outroutes = []
+        for i in idx:
+            outroutes.append(routes[i])
         return outroutes
-            
+
     def get_highest_preference(self, routes):
         """ select the route with the shortest AS Path """
-        # TODO
+        highest=0
+        idx=[]
+        for i in range(len(routes)):
+            target=routes[i]
+            if int(target["localpref"]) > int(highest):
+                highest=target["localpref"]
+                idx=[i]
+            elif int(target["localpref"]) == int(highest):
+                idx.append(i)
+            else:
+                continue
         outroutes = []
+        for i in idx:
+            outroutes.append(routes[i])
         return outroutes
-         
+    
     def get_self_origin(self, routes):
         """ select self originating routes """
         # TODO
+        #print(routes)
+        #print("after")
         outroutes = []
-        return outroutes
+        for i in routes:
+            if i["selfOrigin"]=='True':
+                outroutes.append(i)
+        if len(outroutes)==0:
+            return routes
+        else:
+            return outroutes
+
 
     def get_origin_routes(self, routes):
         """ select origin routes: EGP > IGP > UNK """
         # TODO
+        order={ "IGP": 3,"EGP": 2, "UNK": 1}
+        highest=0
+        idx=[]
+        for i in range(len(routes)):
+            target=routes[i]["origin"]
+            rank=order[target]
+            #print(rank)
+            if rank > highest:
+                highest = rank
+                idx=[i]
+            elif rank == highest:
+                idx.append(i)
+            else:
+                continue
         outroutes = []
-        return outroutes
+        for i in idx:
+            outroutes.append(routes[i])
+        if len(outroutes)==0:
+            return routes
+        else:
+            return outroutes
 
     def filter_relationships(self, srcif, routes):
         """ Don't allow Peer->Peer, Peer->Prov, or Prov->Peer forwards """
         outroutes = []
         return outroutes
+    
+    def parse_ip(self, ip):
+        temp=ip.split(".")
+        for sec in temp:
+            while(len(sec)<3):
+                 sec="0"+sec
+        result=""
+        for sec in temp:
+            result+=sec
+        return result
+
+
+    def lowest_ip_routes(self, routes):
+        low=self.parse_ip(routes[0]["addr"])
+        idx=0
+        if len(routes)==1:
+           return routes
+        else:
+           for i in range(1, len(routes)):
+               if self.parse_ip(routes[i]["addr"])<low:
+                  idx=i
+           return [routes[idx]]
 
     def get_route(self, srcif, daddr):
         """	Select the best route for a given address	"""
@@ -123,21 +203,24 @@ class Router:
         peer = None
         routes = self.lookup_routes(daddr)
         # Rules go here
-        # if routes:
+        if routes:
             # 1. Highest Preference
-        #    routes = self.get_highest_preference(routes)
+            routes = self.get_highest_preference(routes)
             # 2. Self Origin
-        #    routes = self.get_self_origin(routes)
+            routes = self.get_self_origin(routes)
             # 3. Shortest ASPath
-        #    routes = self.get_shortest_as_path(routes)
+            routes = self.get_shortest_as_path(routes)
             # 4. EGP > IGP > UNK
-        #    routes = self.get_origin_routes(routes)
+            #print(routes)
+            routes = self.get_origin_routes(routes)
             # 5. Lowest IP Address
+            routes = self.lowest_ip_routes(routes)
             # TODO
             # Final check: enforce peering relationships
             # routes = self.filter_relationships(srcif, routes)
         #return self.sockets[peer] if peer else None
-        return routes[0]
+        #print(routes)
+        return routes[0]["addr"]
          
     def forward(self, srcif, packet):
         #print(self.routes)
@@ -160,12 +243,12 @@ class Router:
         #add entry to routes
         msg= packet["msg"]
         if(srcif in self.updates.keys()):
-            self.routes[srcif].append([msg])
+            self.updates[srcif].append(msg)
         else:
             self.updates[srcif] = [msg]
         #check if src is already in routes
         if(srcif in self.routes.keys()):
-            self.routes[srcif].append([msg])
+            self.routes[srcif].append(msg)
         else:
             self.routes[srcif] = [msg]
         
