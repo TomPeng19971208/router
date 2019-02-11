@@ -220,20 +220,24 @@ class Router:
             # routes = self.filter_relationships(srcif, routes)
         #return self.sockets[peer] if peer else None
         #print(routes)
-        return routes[0]["addr"]
-         
+            return routes[0]["addr"]
+        else:
+            return "" 
     def forward(self, srcif, packet):
         #print(self.routes)
         """	Forward a data packet	"""
         #TODO: really dangerous, please check if route=[] later
         route = self.get_route(srcif, packet["dst"])
+        #print(route)
+        if route=="":
+            return False
         sock=self.sockets[route]
         try:
             sock.sendall(json.dumps(packet))
         except:
             print("forward failed")
         
-        return
+        return True
 
     def coalesce(self):
         """	coalesce any routes that are right next to each other	"""
@@ -256,16 +260,15 @@ class Router:
         for ip in self.sockets:
             if ip != srcif:
                 sock = self.sockets[ip]
-                send=packet.copy()
+                send=copy.deepcopy(packet)
                 send["src"]=send["dst"]
                 send["dst"]=ip
                 try:
                     sock.sendall(json.dumps(send))
+                    del send
                 except:
                     print("send error")
-                finally:
-                    del send
-        return;
+        return True
 
  
     def revoke(self, packet):
@@ -315,35 +318,32 @@ class Router:
                                              "peer": ip})
         try:
             self.sockets[packet["src"]].sendall(json.dumps(tableContent))
+            return True
         except:
             print("Forwarding message fail")
-        return 
 
 
 
     def handle_packet(self, srcif, packet):
         typ=packet["type"]
         if typ=="update":
-            self.update(srcif, packet)
-            return;
+            return self.update(srcif, packet)
         if typ=="dump":
-            self.dump(packet)
-            return;
-        if typ=="no route":
-            #TODO
-            return
+            return self.dump(packet)
         if typ=="revoke":
-            self.revoke(packet)
-            return
+            return self.revoke(packet)
         if typ=="data":
-            self.forward(srcif, packet);
-            return
+            return self.forward(srcif, packet);
         else:
             exit(1)
     
     def send_error(self, conn, msg):
         """ Send a no_route error message """
         # TODO
+        src=conn.getpeername()
+        src=src[:-1]+"1"
+        result={"src": src, "dst": msg["src"], "type": "no route", "msg": {}}
+        conn.sendall(json.dumps(result))
         return
 
     def run(self):
