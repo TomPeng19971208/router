@@ -271,8 +271,33 @@ class Router:
     def revoke(self, packet):
         """	handle revoke packets	"""
         # TODO
+        target = self.routes[packet["src"]]
+        idx=[]
+        for i in range(len(target)):
+            item=target[i]
+            for rev in packet["msg"]:
+                if rev["network"]==item["network"] and rev["netmask"]==item["netmask"]:
+                    idx.append(i)
+        idx.sort()
+        while len(idx)>0:
+            del target[idx[0]]
+            del idx[0]
+            idx=list(map(lambda x: x-1, idx))    
+        
+        #send packets to neighbours
+        for ip in self.sockets:
+            if ip != packet["src"]:
+                sock = self.sockets[ip]
+                send=copy.deepcopy(packet)
+                send["src"]=send["dst"]
+                send["dst"]=ip
+                try:
+                    sock.sendall(json.dumps(send))
+                    del send
+                except:
+                    print("send error")
+                
         return True
-
 
     def dump(self, packet):
         tableContent = {
