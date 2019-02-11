@@ -195,6 +195,49 @@ class Router:
             result+=sec
         return result
 
+    def same_bits(self, ip, net, mask):
+        result1=[]
+        result2=[]
+        mask2=copy.deepcopy(mask)
+        mask2=[x for x in mask2 if x != [000]]
+        number = 0;
+        for i in range(len(mask)):
+            r1=net[i] & mask[i]
+            r2=ip[i] & mask[i]
+            result1.append(str(bin(r1))[2:])
+            result2.append(str(bin(r2))[2:])
+        result1=reduce((lambda x, y:x+y), result1)
+        result2=reduce((lambda x, y:x+y), result2)
+        number=0
+        for i in range(len(result1)):
+             number=i
+             if result1[i]!=result2[i]: 
+                 break
+        return number  
+
+    def longest_prefix(self, routes, addr):
+        if len(routes)==1:
+            return routes
+        else:
+            temp_routes=[]
+            highest=-1;
+            idx=[];
+            for i in range(len(routes)):
+                item=routes[i]
+                ip = [int(x) for x in addr.split(".")]
+                net = [int(x) for x in item["network"].split(".")]
+                mask = [int(x) for x in item["netmask"].split(".")]
+                same = self.same_bits(ip, net, mask)
+                if same>highest:
+                    highest=same
+                    idx=[i]
+                elif same==highest:
+                    idx.append(i)
+                else:
+                    continue;
+            for i in idx:
+                 temp_routes.append(routes[i])
+            return temp_routes
 
     def lowest_ip_routes(self, routes):
         low=self.parse_ip(routes[0]["addr"])
@@ -223,6 +266,7 @@ class Router:
             # 4. EGP > IGP > UNK
             #print(routes)
             routes = self.get_origin_routes(routes)
+            routes = self.longest_prefix(routes, daddr)
             # 5. Lowest IP Address
             routes = self.lowest_ip_routes(routes)
             # TODO
