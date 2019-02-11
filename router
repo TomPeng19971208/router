@@ -177,7 +177,14 @@ class Router:
         if rel=="peer" or rel=="prov":
                 return dest_rel=="cust"
         return True
- 
+
+    def filter_relation(self, srcif, routes):
+        result=[]
+        for r in routes:
+            if self.proper_relation(srcif, r['addr']):
+                result.append(r)
+        return result 
+
     def parse_ip(self, ip):
         temp=ip.split(".")
         for sec in temp:
@@ -220,7 +227,8 @@ class Router:
             routes = self.lowest_ip_routes(routes)
             # TODO
             # Final check: enforce peering relationships
-        #return self.sockets[peer] if peer else None
+            routes = self.filter_relation(srcif, routes)
+            #return self.sockets[peer] if peer else None
         #print(routes)
             if len(routes)==0:
                return ""
